@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DCF Guide (Non-Finance)</title>
+    <style>
+      :root {
+        --navy: #0f243e;
+        --blue: #1f4e78;
+        --bg: #f4f6fa;
+        --card: #ffffff;
+        --line: #dfe6f1;
+        --text: #1f2937;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; font-family: "Segoe UI", Arial, sans-serif; background: var(--bg); color: var(--text); }
+      .wrap { max-width: 980px; margin: 26px auto; padding: 0 16px 20px; }
+      .hero {
+        background: linear-gradient(135deg, var(--navy), var(--blue));
+        color: #fff;
+        border-radius: 12px;
+        padding: 18px 20px;
+      }
+      h1 { margin: 0 0 6px; font-size: 25px; }
+      .hero p { margin: 0; color: #dbe8ff; }
+      .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 14px; }
+      .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+      .card h2 { margin: 0 0 10px; color: var(--blue); font-size: 17px; }
+      ul { margin: 6px 0 0 18px; padding: 0; }
+      li { margin: 6px 0; line-height: 1.4; }
+      .step { font-weight: 700; color: var(--navy); }
+      .kbd {
+        font-family: Consolas, monospace;
+        font-size: 12px;
+        border: 1px solid #c5d0e3;
+        border-radius: 5px;
+        padding: 2px 6px;
+        background: #f8faff;
+      }
+      .actions { margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap; }
+      .btn {
+        text-decoration: none;
+        border-radius: 9px;
+        padding: 10px 12px;
+        font-weight: 600;
+        border: 1px solid #c9d6ea;
+      }
+      .btn-primary { background: var(--blue); color: #fff; border-color: var(--blue); }
+      .btn-secondary { background: #fff; color: var(--navy); }
+      @media (max-width: 880px) { .grid { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="hero">
+        <h1>DCF Guide for Non-Finance Users</h1>
+        <p>This explains what the model is doing, why it matters, and how to interpret the outputs.</p>
+      </div>
+
+      <div class="grid">
+        <div class="card">
+          <h2>1) What this model answers</h2>
+          <ul>
+            <li><span class="step">Goal:</span> estimate what a business is worth today using expected future cash flows.</li>
+            <li><span class="step">Core idea:</span> future cash is worth less than cash today, so we discount it back.</li>
+            <li><span class="step">Main output:</span> enterprise value, equity value, and implied price per share.</li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <h2>2) Inputs you provide</h2>
+          <ul>
+            <li>Revenue and EBITDA (or upload historical financials).</li>
+            <li>Growth rate assumptions (how fast business grows).</li>
+            <li>WACC / discount rate (required return).</li>
+            <li>Terminal growth and capital structure (cash, debt).</li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <h2>3) What the engine calculates</h2>
+          <ul>
+            <li>Builds 5-year forecast for revenue, margins, reinvestment, and working capital.</li>
+            <li>Computes unlevered free cash flow (cash available to all investors).</li>
+            <li>Discounts each year using WACC (with mid-year convention).</li>
+            <li>Computes terminal value via Gordon and Exit Multiple methods.</li>
+            <li>Uses a blended terminal value for a more balanced result.</li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <h2>4) Quality controls built in</h2>
+          <ul>
+            <li>Terminal growth is capped by GDP-style long-run guardrails.</li>
+            <li>Minimum spread between WACC and terminal growth prevents unstable perpetuity math.</li>
+            <li>Check tab flags balance/sanity issues and terminal FCF concerns.</li>
+            <li>Sensitivity table shows valuation changes under different WACC and growth assumptions.</li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <h2>5) How to read outputs</h2>
+          <ul>
+            <li><span class="step">Valuation sheet:</span> detailed DCF math and implied prices.</li>
+            <li><span class="step">Dashboard sheet:</span> quick summary for decision makers.</li>
+            <li><span class="step">Sensitivity sheet:</span> best/worst case valuation ranges.</li>
+            <li><span class="step">Word report:</span> narrative summary and charts for sharing.</li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <h2>6) Practical workflow</h2>
+          <ul>
+            <li>Open portal at <span class="kbd">http://127.0.0.1:5000</span>.</li>
+            <li>Select scenario (Base/Bull/Bear), fill assumptions or upload file.</li>
+            <li>Generate pack and review Dashboard + Checks first.</li>
+            <li>Adjust assumptions, rerun, and compare with ask/current price.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="actions">
+        <a class="btn btn-primary" href="/">Back to DCF Portal</a>
+        <a class="btn btn-secondary" href="/">Generate Valuation Pack</a>
+      </div>
+    </div>
+  </body>
+</html>

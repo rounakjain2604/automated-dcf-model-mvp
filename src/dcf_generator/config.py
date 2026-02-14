@@ -70,6 +70,8 @@ class ValuationConfig:
     preferred_stock: float = 0.0
     fully_diluted_shares: float = 1_000_000.0
     gdp_growth_cap: float = 0.035
+    terminal_value_blend_weight_gordon: float = 0.5
+    terminal_spread_floor_bps: float = 50.0
 
 
 @dataclass

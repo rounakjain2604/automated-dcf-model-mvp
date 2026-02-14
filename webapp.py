@@ -121,8 +121,13 @@ def _build_cfg_from_form(form, scenario: str) -> DCFConfig:
     cfg.forecast.capex_pct_revenue = capex_pct
     cfg.forecast.tax_rate = tax_rate
 
-    cfg.wacc.target_debt_weight = 0.0
-    cfg.wacc.target_equity_weight = 1.0
+    equity_proxy = max(ask_price - debt + cash, 1.0)
+    enterprise_proxy = max(equity_proxy + debt - cash, 1.0)
+    debt_weight = min(max(debt / enterprise_proxy, 0.0), 0.85)
+    equity_weight = 1.0 - debt_weight
+
+    cfg.wacc.target_debt_weight = debt_weight
+    cfg.wacc.target_equity_weight = equity_weight
     cfg.wacc.risk_free_rate = risk_free
     cfg.wacc.beta = beta
     cfg.wacc.size_premium = size_premium
@@ -138,6 +143,8 @@ def _build_cfg_from_form(form, scenario: str) -> DCFConfig:
     cfg.valuation.fully_diluted_shares = 1.0
     cfg.valuation.gdp_growth_cap = 0.035
     cfg.valuation.exit_ev_ebitda_multiple = 4.5 if wacc >= 0.24 else 6.0
+    cfg.valuation.terminal_value_blend_weight_gordon = 0.6
+    cfg.valuation.terminal_spread_floor_bps = 75.0
 
     cfg._web_meta = {"ask_price": ask_price}  # type: ignore[attr-defined]
     return cfg
@@ -186,6 +193,10 @@ def _generate_synthetic_input(form, destination: Path, scenario: str) -> Path:
 
 def _fmt_m(value: float) -> str:
     return f"${value/1_000_000:,.2f}M"
+
+
+def _fmt_price(value: float) -> str:
+    return f"${value:,.2f}"
 
 
 def _zebra_table(table) -> None:
@@ -299,14 +310,24 @@ def _build_word_report(
 
     ev_g = float(metrics.get("ev_gordon", 0.0) or 0.0)
     ev_e = float(metrics.get("ev_exit", 0.0) or 0.0)
+    ev_b = float(metrics.get("ev_blended", 0.0) or 0.0)
     eq_g = float(metrics.get("eq_gordon", 0.0) or 0.0)
     eq_e = float(metrics.get("eq_exit", 0.0) or 0.0)
+    eq_b = float(metrics.get("eq_blended", 0.0) or 0.0)
+    price_g = float(metrics.get("price_gordon", 0.0) or 0.0)
+    price_e = float(metrics.get("price_exit", 0.0) or 0.0)
+    price_b = float(metrics.get("price_blended", 0.0) or 0.0)
     wacc = float(metrics.get("wacc", 0.0) or 0.0)
     terminal_g = float(metrics.get("terminal_growth", 0.0) or 0.0)
+    terminal_g_effective = float(metrics.get("terminal_growth_effective", terminal_g) or terminal_g)
+    terminal_spread = float(metrics.get("terminal_spread", 0.0) or 0.0)
     risk_free = float(metrics.get("risk_free", 0.0) or 0.0)
     beta = float(metrics.get("beta", 0.0) or 0.0)
     mrp = float(metrics.get("mrp", 0.0) or 0.0)
     size_premium = float(metrics.get("size_premium", 0.0) or 0.0)
+    cost_of_equity = float(metrics.get("cost_of_equity", 0.0) or 0.0)
+    post_tax_cost_of_debt = float(metrics.get("post_tax_cost_of_debt", 0.0) or 0.0)
+    synthetic_rating = str(metrics.get("synthetic_rating", "N/A") or "N/A")
     projected_growth = float(metrics.get("revenue_cagr", 0.0) or 0.0)
     historical_avg = float(metrics.get("historical_growth_3y_avg", 0.0) or 0.0)
 
@@ -317,12 +338,13 @@ def _build_word_report(
 
     low = min(ev_g, ev_e)
     high = max(ev_g, ev_e)
-    midpoint = (low + high) / 2
-    uplift = midpoint - ask_price
-    upside_pct = ((midpoint / ask_price) - 1) if ask_price > 0 else 0.0
+    blended_ev = ev_b if ev_b > 0 else (low + high) / 2
+    blended_eq = eq_b if eq_b > 0 else (eq_g + eq_e) / 2
+    blended_price = price_b if price_b > 0 else (price_g + price_e) / 2
+    upside_pct = ((blended_ev / ask_price) - 1) if ask_price > 0 else 0.0
 
-    bear = midpoint * 0.90
-    bull = midpoint * 1.10
+    bear = blended_ev * 0.90
+    bull = blended_ev * 1.10
 
     doc = Document()
     style = doc.styles["Normal"]
@@ -361,11 +383,32 @@ def _build_word_report(
     title.paragraph_format.space_after = Pt(6)
 
     summary = doc.add_paragraph(
-        f"Based on our DCF analysis, {company_name} implies an enterprise value range of {_fmt_m(low)} to {_fmt_m(high)} "
-        f"under {scenario} assumptions. Using a WACC of {wacc:.1%} and terminal growth of {terminal_g:.1%}, "
-        f"the midpoint value is {_fmt_m(midpoint)}, indicating {upside_pct:.1%} upside versus the current/ask level."
+        f"Under the {scenario} case, the DCF indicates a blended enterprise value of {_fmt_m(blended_ev)} "
+        f"(range: {_fmt_m(low)} to {_fmt_m(high)} across Gordon and Exit methods). "
+        f"At WACC {wacc:.1%} and effective terminal growth {terminal_g_effective:.1%}, "
+        f"the model implies {upside_pct:.1%} upside versus the reference price."
     )
     summary.paragraph_format.space_after = Pt(8)
+
+    recommendation = "MARKET PRICE N/A"
+    if ask_price > 0:
+        if blended_ev > ask_price:
+            recommendation = f"UNDERVALUED by {upside_pct:.1%}"
+        else:
+            recommendation = f"OVERVALUED by {abs(upside_pct):.1%}"
+
+    headline = doc.add_table(rows=1, cols=4)
+    headline.style = "Light Grid Accent 1"
+    headline.rows[0].cells[0].text = "Scenario"
+    headline.rows[0].cells[1].text = "Blended EV"
+    headline.rows[0].cells[2].text = "Blended Equity"
+    headline.rows[0].cells[3].text = "Recommendation"
+    rr = headline.add_row().cells
+    rr[0].text = scenario
+    rr[1].text = _fmt_m(blended_ev)
+    rr[2].text = _fmt_m(blended_eq)
+    rr[3].text = recommendation
+    _zebra_table(headline)
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
@@ -373,7 +416,7 @@ def _build_word_report(
         margin_chart = tmp_path / "margin.png"
         revenue_chart = tmp_path / "revenue.png"
         fcf_area = tmp_path / "fcf_area.png"
-        _build_chart_football(bear, midpoint, bull, ff_chart)
+        _build_chart_football(bear, blended_ev, bull, ff_chart)
         _build_chart_margin(forecast_df, margin_chart)
         _build_chart_revenue_bridge(forecast_df, revenue_chart)
         _build_chart_fcf_area(forecast_df, fcf_area)
@@ -386,66 +429,76 @@ def _build_word_report(
         left = split.cell(0, 0)
         right = split.cell(0, 1)
 
-        left.add_paragraph("Key Valuation Metrics").runs[0].bold = True
+        left.add_paragraph("Valuation Methods Summary").runs[0].bold = True
         left.paragraphs[-1].runs[0].font.color.rgb = RGBColor(31, 78, 120)
 
         kpi = left.add_table(rows=1, cols=4)
         kpi.style = "Light Grid Accent 1"
-        kpi.rows[0].cells[0].text = "Metric"
-        kpi.rows[0].cells[1].text = "Base"
-        kpi.rows[0].cells[2].text = "Bear"
-        kpi.rows[0].cells[3].text = "Bull"
+        kpi.rows[0].cells[0].text = "Method"
+        kpi.rows[0].cells[1].text = "Enterprise Value"
+        kpi.rows[0].cells[2].text = "Equity Value"
+        kpi.rows[0].cells[3].text = "Implied Price"
 
-        def _krow(name: str, base_v: float, bear_v: float, bull_v: float, money: bool = True):
+        def _krow(name: str, ev_v: float, eq_v: float, price_v: float):
             rr = kpi.add_row().cells
             rr[0].text = name
-            if money:
-                rr[1].text = _fmt_m(base_v)
-                rr[2].text = _fmt_m(bear_v)
-                rr[3].text = _fmt_m(bull_v)
-            else:
-                rr[1].text = f"{base_v:.1%}"
-                rr[2].text = f"{bear_v:.1%}"
-                rr[3].text = f"{bull_v:.1%}"
+            rr[1].text = _fmt_m(ev_v)
+            rr[2].text = _fmt_m(eq_v)
+            rr[3].text = _fmt_price(price_v)
 
-        _krow("Enterprise Value", midpoint, bear, bull)
-        _krow("Equity Value", (eq_g + eq_e) / 2, (eq_g + eq_e) / 2 * 0.9, (eq_g + eq_e) / 2 * 1.1)
-        _krow("Revenue CAGR", projected_growth, projected_growth - 0.01, projected_growth + 0.01, money=False)
-        _krow("Unlevered Free Cash Flow", float(forecast_df["FCF"].iloc[-1]), float(forecast_df["FCF"].iloc[-1]) * 0.9, float(forecast_df["FCF"].iloc[-1]) * 1.1)
+        _krow("Gordon Growth", ev_g, eq_g, price_g)
+        _krow("Exit Multiple", ev_e, eq_e, price_e)
+        _krow("Blended", blended_ev, blended_eq, blended_price)
         _zebra_table(kpi)
 
-        right.add_paragraph("Unlevered Free Cash Flow Projection ($Y)").runs[0].bold = True
+        right.add_paragraph("Unlevered Free Cash Flow Projection").runs[0].bold = True
         right.paragraphs[-1].runs[0].font.color.rgb = RGBColor(31, 78, 120)
         right.add_paragraph().add_run().add_picture(str(fcf_area), width=Inches(3.35))
 
         hook = doc.add_paragraph(
-            f"Based on a WACC of {wacc:.1%} and terminal growth of {terminal_g:.1%}, "
-            f"{company_name} shows an intrinsic value range of {_fmt_m(low)} to {_fmt_m(high)}, "
-            f"implying {upside_pct:.1%} upside vs current/ask level."
+            f"Primary valuation conclusion: {_fmt_m(blended_ev)} EV / {_fmt_m(blended_eq)} Equity "
+            f"(blended method). This corresponds to {_fmt_price(blended_price)} implied price and {recommendation}."
         )
         hook.runs[0].bold = True
         hook.paragraph_format.space_before = Pt(6)
         hook.paragraph_format.space_after = Pt(8)
 
         doc.add_page_break()
-        sec_title = doc.add_heading("2) Assumption Sanity Check", level=1)
+        sec_title = doc.add_heading("2) Cost of Capital & Terminal Value Diagnostics", level=1)
         sec_title.runs[0].font.color.rgb = RGBColor(24, 37, 56)
 
         wacc_table = doc.add_table(rows=1, cols=2)
         wacc_table.style = "Light Grid Accent 1"
-        wacc_table.rows[0].cells[0].text = "WACC Component"
+        wacc_table.rows[0].cells[0].text = "Component"
         wacc_table.rows[0].cells[1].text = "Value"
         for label, value in [
             ("Risk-Free Rate", risk_free),
             ("Beta", beta),
             ("Equity Risk Premium", mrp),
             ("Size Premium", size_premium),
+            ("Cost of Equity", cost_of_equity),
+            ("Post-tax Cost of Debt", post_tax_cost_of_debt),
             ("WACC", wacc),
+            ("Terminal Growth (Input)", terminal_g),
+            ("Terminal Growth (Effective)", terminal_g_effective),
+            ("Terminal Spread (WACC-g)", terminal_spread),
         ]:
             r = wacc_table.add_row().cells
             r[0].text = label
             r[1].text = f"{value:.2%}" if label != "Beta" else f"{value:.2f}"
         _zebra_table(wacc_table)
+
+        credit_table = doc.add_table(rows=1, cols=2)
+        credit_table.style = "Light Grid Accent 1"
+        credit_table.rows[0].cells[0].text = "Credit Signal"
+        credit_table.rows[0].cells[1].text = "Observation"
+        rc = credit_table.add_row().cells
+        rc[0].text = "Synthetic Rating"
+        rc[1].text = synthetic_rating
+        rc = credit_table.add_row().cells
+        rc[0].text = "Terminal Sanity"
+        rc[1].text = "PASS" if terminal_spread >= 0.005 else "REVIEW"
+        _zebra_table(credit_table)
 
         tone = "conservative" if projected_growth <= historical_avg else "aggressive"
         relation = "lower" if projected_growth <= historical_avg else "higher"
@@ -455,10 +508,11 @@ def _build_word_report(
         )
 
         doc.add_paragraph(
-            f"WACC build: Risk-Free ({risk_free:.2%}) + Beta ({beta:.2f}) × ERP ({mrp:.2%}) + Size Premium ({size_premium:.2%})."
+            f"WACC framework: Risk-Free ({risk_free:.2%}) + Beta ({beta:.2f}) × ERP ({mrp:.2%}) + Size Premium ({size_premium:.2%}), "
+            f"with synthetic credit anchor at {synthetic_rating}."
         )
 
-        doc.add_heading("3) Financial Health Check", level=1)
+        doc.add_heading("3) Operating Performance & Cash Conversion", level=1)
         doc.add_picture(str(revenue_chart), width=Pt(430))
         doc.add_picture(str(margin_chart), width=Pt(430))
 
@@ -496,8 +550,8 @@ def _build_word_report(
             ("Bull", -0.005, 0.005),
         ]:
             w_adj = wacc + w_delta
-            g_adj = terminal_g + g_delta
-            ev_adj = midpoint * (1 - (w_delta * 2.2) + (g_delta * 3.0))
+            g_adj = terminal_g_effective + g_delta
+            ev_adj = blended_ev * (1 - (w_delta * 2.2) + (g_delta * 3.0))
             r = sens.add_row().cells
             r[0].text = label
             r[1].text = f"{w_adj:.2%}"
@@ -510,8 +564,8 @@ def _build_word_report(
             "A 1% increase in WACC can compress equity value materially, often more than similar shifts in terminal growth."
         )
 
-        doc.add_heading("5) Peer Comparison (Relative Valuation)", level=1)
-        target_multiple = midpoint / max(input_ebitda, 1.0)
+        doc.add_heading("5) Relative Valuation Cross-Check", level=1)
+        target_multiple = blended_ev / max(input_ebitda, 1.0)
         peer_rows = [
             ("Peer A", 4.9),
             ("Peer B", 5.5),
@@ -544,7 +598,17 @@ def _build_word_report(
             "driven by its projected profitability and cash conversion profile."
         )
 
-        doc.add_heading("6) Disclaimer", level=1)
+        doc.add_heading("6) Key Risks & Diligence Focus", level=1)
+        for risk_text in [
+            "Forecast risk: operating assumptions (growth, margin, and reinvestment) are the largest EV drivers.",
+            "Discount-rate risk: WACC and terminal assumptions remain the dominant sensitivity variables.",
+            "Data quality risk: model accuracy depends on completeness and consistency of uploaded financials.",
+            "Execution risk: downside scenarios should be reviewed against debt capacity and cash conversion.",
+        ]:
+            p = doc.add_paragraph(style="List Bullet")
+            p.add_run(risk_text)
+
+        doc.add_heading("7) Disclaimer", level=1)
         doc.add_paragraph(
             "This report is for informational purposes only and does not constitute investment advice, "
             "a fairness opinion, or an offer to buy/sell securities. Valuation outputs are model-driven and "
@@ -558,6 +622,11 @@ def _build_word_report(
 @app.get("/")
 def index():
     return render_template("index.html", case_defaults=CASE_DEFAULTS)
+
+
+@app.get("/guide")
+def guide():
+    return render_template("guide.html")
 
 
 @app.post("/generate")

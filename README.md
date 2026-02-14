@@ -19,6 +19,16 @@ The output workbook is designed to look and behave like an investment banking / 
 - Expanded 5x5 sensitivity matrix with a cleaner heatmap for investment committee use.
 - Enhanced checks tab with conditional pass/fail highlighting for quick QA sign-off.
 
+### Model quality upgrades (investment-committee grade)
+- Terminal value guardrails: growth capped by GDP and minimum spread enforced between WACC and terminal growth.
+- Blended terminal valuation output (Gordon + Exit) to reduce single-method distortion.
+- Additional diagnostics: implied exit multiple from Gordon TV and implied perpetuity growth from Exit TV.
+- Stronger credit-risk context via synthetic rating and cost-of-capital detail in report data.
+
+### Beginner-friendly onboarding
+- Non-finance guide page in portal: `http://127.0.0.1:5000/guide`
+- Plain-language written guide: `GUIDE_NON_FINANCE.md`
+
 ---
 
 ## 1) What this model does
@@ -86,6 +96,12 @@ Then open:
 
 ```text
 http://127.0.0.1:5000
+```
+
+Optional guide page:
+
+```text
+http://127.0.0.1:5000/guide
 ```
 
 Windows shortcut launcher:

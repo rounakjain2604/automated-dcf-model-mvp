@@ -137,6 +137,8 @@ def _write_inputs(
         ("GDP Growth Cap", cfg.valuation.gdp_growth_cap),
         ("Current Market Price", 0.0),
         ("Ask Price", 0.0),
+        ("Gordon Blend Weight", cfg.valuation.terminal_value_blend_weight_gordon),
+        ("Terminal Spread Floor (bps)", cfg.valuation.terminal_spread_floor_bps),
     ]
 
     ws["A7"] = "Assumption"
@@ -155,7 +157,7 @@ def _write_inputs(
             ws[f"B{i}"].fill = ALT_ROW_FILL
 
     ws.freeze_panes = "A8"
-    ws.auto_filter.ref = "A7:B41"
+    ws.auto_filter.ref = "A7:B43"
     ws.print_area = "A1:D45"
     ws.page_setup.fitToWidth = 1
     ws.page_setup.fitToHeight = 0
@@ -264,10 +266,16 @@ def _write_valuation(wb: Workbook, last_forecast_row: int) -> None:
         ("PV Terminal (Exit)", f"=B7*Forecast!P{last_forecast_row}"),
         ("Enterprise Value (Gordon)", "=B3+B8"),
         ("Enterprise Value (Exit)", "=B3+B9"),
+        ("Enterprise Value (Blended)", "=B10*Inputs!B42+B11*(1-Inputs!B42)"),
         ("Equity Value (Gordon)", "=B10-Inputs!B30-Inputs!B31-Inputs!B32+Inputs!B29"),
         ("Equity Value (Exit)", "=B11-Inputs!B30-Inputs!B31-Inputs!B32+Inputs!B29"),
-        ("Implied Price (Gordon)", "=B12/Inputs!B28"),
-        ("Implied Price (Exit)", "=B13/Inputs!B28"),
+        ("Equity Value (Blended)", "=B12-Inputs!B30-Inputs!B31-Inputs!B32+Inputs!B29"),
+        ("Implied Price (Gordon)", "=B13/Inputs!B28"),
+        ("Implied Price (Exit)", "=B14/Inputs!B28"),
+        ("Implied Price (Blended)", "=B15/Inputs!B28"),
+        ("Implied Exit Multiple (from Gordon TV)", "=B6/B5"),
+        ("Implied Perpetuity Growth (from Exit TV)", "=(B7*B2-B4)/(B7+B4)"),
+        ("Terminal Spread (WACC-g)", "=B2-Inputs!B26"),
     ]
 
     for idx, (metric, formula) in enumerate(metrics_formulas, start=2):
@@ -277,7 +285,11 @@ def _write_valuation(wb: Workbook, last_forecast_row: int) -> None:
         if metric == "WACC":
             ws[f"B{idx}"].number_format = PCT_FMT
         elif "Implied Price" in metric:
-            ws[f"B{idx}"].number_format = MILLIONS_FMT
+            ws[f"B{idx}"].number_format = PRICE_FMT
+        elif "Implied Exit Multiple" in metric:
+            ws[f"B{idx}"].number_format = "0.00x"
+        elif "Implied Perpetuity Growth" in metric or "Terminal Spread" in metric:
+            ws[f"B{idx}"].number_format = PCT_FMT
         elif "Terminal FCF" in metric or "Terminal EBITDA" in metric:
             ws[f"B{idx}"].number_format = ACCOUNTING_FMT
         else:
@@ -288,11 +300,11 @@ def _write_valuation(wb: Workbook, last_forecast_row: int) -> None:
             ws[f"A{idx}"].fill = ALT_ROW_FILL
             ws[f"B{idx}"].fill = ALT_ROW_FILL
 
-    ws["A18"] = "Model Integrity"
-    ws["B18"] = "=IF(Inputs!B26<=Inputs!B39,\"PASS\",\"ALERT: g > GDP cap\")"
-    ws["B18"].font = FORMULA_FONT
-    ws["A18"].border = THIN_BORDER
-    ws["B18"].border = THIN_BORDER
+    ws["A23"] = "Model Integrity"
+    ws["B23"] = "=IF(AND(Inputs!B26<=Inputs!B39,B21>=Inputs!B43/10000),\"PASS\",\"ALERT\")"
+    ws["B23"].font = FORMULA_FONT
+    ws["A23"].border = THIN_BORDER
+    ws["B23"].border = THIN_BORDER
 
     ws.freeze_panes = "A2"
     ws.print_area = "A1:D30"
@@ -380,8 +392,8 @@ def _write_dashboard(wb: Workbook) -> None:
         ("WACC", "=Valuation!B2", PCT_FMT),
         ("EV (Gordon)", "=Valuation!B10", MILLIONS_FMT),
         ("EV (Exit)", "=Valuation!B11", MILLIONS_FMT),
-        ("Price (Gordon)", "=Valuation!B14", MILLIONS_FMT),
-        ("Price (Exit)", "=Valuation!B15", MILLIONS_FMT),
+        ("EV (Blended)", "=Valuation!B12", MILLIONS_FMT),
+        ("Price (Blended)", "=Valuation!B17", PRICE_FMT),
     ]
     for idx, (label, formula, fmt) in enumerate(kpi_metrics, start=2):
         ws.cell(row=4, column=idx, value=label)
@@ -404,13 +416,21 @@ def _write_dashboard(wb: Workbook) -> None:
     _style_header_row(ws, 10, 2)
 
     ws["A11"] = "Gordon Growth"
-    ws["B11"] = "=Valuation!B14"
+    ws["B11"] = "=Valuation!B15"
     ws["A12"] = "Exit Multiple"
-    ws["B12"] = "=Valuation!B15"
+    ws["B12"] = "=Valuation!B16"
+    ws["A13"] = "Blended"
+    ws["B13"] = "=Valuation!B17"
+    ws["A13"].border = THIN_BORDER
+    ws["B13"].border = THIN_BORDER
+    ws["A13"].fill = ALT_ROW_FILL
+    ws["B13"].fill = ALT_ROW_FILL
     ws["B11"].font = FORMULA_FONT
     ws["B12"].font = FORMULA_FONT
-    ws["B11"].number_format = MILLIONS_FMT
-    ws["B12"].number_format = MILLIONS_FMT
+    ws["B13"].font = FORMULA_FONT
+    ws["B11"].number_format = PRICE_FMT
+    ws["B12"].number_format = PRICE_FMT
+    ws["B13"].number_format = PRICE_FMT
     ws["A11"].border = THIN_BORDER
     ws["A12"].border = THIN_BORDER
     ws["B11"].border = THIN_BORDER
@@ -420,8 +440,8 @@ def _write_dashboard(wb: Workbook) -> None:
 
     ws["A14"] = "Enterprise to Equity Bridge"
     ws["A14"].font = Font(bold=True, color="1F4E78")
-    ws["A15"] = "Enterprise Value (Gordon)"
-    ws["B15"] = "=Valuation!B10"
+    ws["A15"] = "Enterprise Value (Blended)"
+    ws["B15"] = "=Valuation!B12"
     ws["A16"] = "Less: Debt"
     ws["B16"] = "=-Inputs!B30"
     ws["A17"] = "Less: Minority Interest"
@@ -452,18 +472,18 @@ def _write_dashboard(wb: Workbook) -> None:
     ws["E15"] = "Implied Price"
     _style_header_row(ws, 15, 5)
     ws["D16"] = "Bear"
-    ws["E16"] = "=Valuation!B14*(1-0.12)"
+    ws["E16"] = "=Valuation!B17*(1-0.12)"
     ws["D17"] = "Base"
-    ws["E17"] = "=Valuation!B14"
+    ws["E17"] = "=Valuation!B17"
     ws["D18"] = "Bull"
-    ws["E18"] = "=Valuation!B14*(1+0.12)"
+    ws["E18"] = "=Valuation!B17*(1+0.12)"
     ws["D19"] = "Spread (Bull-Bear)"
     ws["E19"] = "=E18-E16"
     for row in range(16, 20):
         ws[f"D{row}"].border = THIN_BORDER
         ws[f"E{row}"].border = THIN_BORDER
         ws[f"E{row}"].font = FORMULA_FONT
-        ws[f"E{row}"].number_format = MILLIONS_FMT
+        ws[f"E{row}"].number_format = PRICE_FMT
         if row % 2 == 0:
             ws[f"D{row}"].fill = ALT_ROW_FILL
             ws[f"E{row}"].fill = ALT_ROW_FILL
@@ -475,14 +495,16 @@ def _write_dashboard(wb: Workbook) -> None:
     _style_header_row(ws, 15, 8)
     ws["G16"] = "Terminal Growth <= GDP"
     ws["H16"] = "=IF(Inputs!B26<=Inputs!B39,\"PASS\",\"ALERT\")"
-    ws["G17"] = "Balance Sheet Integrity"
-    ws["H17"] = "=Checks!E8"
-    for row in [16, 17]:
+    ws["G17"] = "Terminal Spread Floor"
+    ws["H17"] = "=IF(Valuation!B21>=Inputs!B43/10000,\"PASS\",\"ALERT\")"
+    ws["G18"] = "Balance Sheet Integrity"
+    ws["H18"] = "=Checks!E8"
+    for row in [16, 17, 18]:
         ws[f"G{row}"].border = THIN_BORDER
         ws[f"H{row}"].border = THIN_BORDER
         ws[f"H{row}"].font = FORMULA_FONT
-    ws.conditional_formatting.add("H16:H17", FormulaRule(formula=['H16="PASS"'], fill=PASS_FILL))
-    ws.conditional_formatting.add("H16:H17", FormulaRule(formula=['H16="ALERT"'], fill=ALERT_FILL))
+    ws.conditional_formatting.add("H16:H18", FormulaRule(formula=['H16="PASS"'], fill=PASS_FILL))
+    ws.conditional_formatting.add("H16:H18", FormulaRule(formula=['H16="ALERT"'], fill=ALERT_FILL))
 
     ws["J10"] = "Year"
     ws["K10"] = "FCF"
@@ -544,15 +566,23 @@ def _write_report_data(
         ("wacc", float(valuation_summary.get("WACC", 0.0))),
         ("ev_gordon", float(valuation_summary.get("Enterprise Value (Gordon)", 0.0))),
         ("ev_exit", float(valuation_summary.get("Enterprise Value (Exit)", 0.0))),
+        ("ev_blended", float(valuation_summary.get("Enterprise Value (Blended)", 0.0))),
         ("eq_gordon", float(valuation_summary.get("Equity Value (Gordon)", 0.0))),
         ("eq_exit", float(valuation_summary.get("Equity Value (Exit)", 0.0))),
+        ("eq_blended", float(valuation_summary.get("Equity Value (Blended)", 0.0))),
         ("price_gordon", float(valuation_summary.get("Implied Price (Gordon)", 0.0))),
         ("price_exit", float(valuation_summary.get("Implied Price (Exit)", 0.0))),
+        ("price_blended", float(valuation_summary.get("Implied Price (Blended)", 0.0))),
+        ("terminal_spread", float(valuation_summary.get("Terminal WACC Spread", 0.0))),
+        ("synthetic_rating", str(valuation_summary.get("Synthetic Rating", ""))),
+        ("cost_of_equity", float(valuation_summary.get("Cost of Equity", 0.0))),
+        ("post_tax_cost_of_debt", float(valuation_summary.get("Post-tax Cost of Debt", 0.0))),
         ("risk_free", cfg.wacc.risk_free_rate),
         ("beta", cfg.wacc.beta),
         ("mrp", cfg.wacc.market_risk_premium),
         ("size_premium", cfg.wacc.size_premium),
         ("terminal_growth", cfg.valuation.terminal_growth_rate),
+        ("terminal_growth_effective", float(valuation_summary.get("Effective Terminal Growth", cfg.valuation.terminal_growth_rate))),
         ("revenue_cagr", cfg.forecast.revenue_cagr),
         ("historical_growth_3y_avg", historical_growth_3y_avg),
     ]
@@ -1116,9 +1146,12 @@ def _input_number_format(label: str, value) -> str:
         "WACC Tax Rate",
         "Terminal Growth Rate",
         "GDP Growth Cap",
+        "Gordon Blend Weight",
     }
     if label in percent_labels:
         return PCT_FMT
+    if "Spread Floor" in label:
+        return "0.0"
     if "Shares" in label:
         return "#,##0"
     if any(x in label for x in ["Cash", "Debt", "Interest", "Stock", "Revenue", "NWC"]):

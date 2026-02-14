@@ -3,15 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>DCF Client Portal</title>
+    <title>DCF Investment Portal</title>
     <style>
       :root {
         --navy: #0f243e;
+        --blue: #1f4e78;
         --dark: #2f2f2f;
         --muted: #5a6473;
         --bg: #f4f6fa;
         --card: #ffffff;
         --line: #e3e8f0;
+        --soft: #eef4ff;
       }
       * { box-sizing: border-box; }
       body {
@@ -20,20 +22,36 @@
         background: var(--bg);
         color: var(--dark);
       }
-      .wrap { max-width: 1050px; margin: 28px auto; padding: 0 16px; }
+      .wrap { max-width: 1180px; margin: 26px auto; padding: 0 16px; }
       .hero {
         background: linear-gradient(135deg, #0f243e 0%, #1f4e78 100%);
         color: white;
         border-radius: 14px;
-        padding: 20px 24px;
+        padding: 18px 22px;
         box-shadow: 0 8px 24px rgba(15, 36, 62, 0.18);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
       }
       .hero h1 { margin: 0 0 6px; font-size: 26px; }
       .hero p { margin: 0; color: #deebff; }
+      .hero-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+      .hero-btn {
+        display: inline-block;
+        text-decoration: none;
+        padding: 9px 12px;
+        border-radius: 9px;
+        font-size: 13px;
+        font-weight: 700;
+        border: 1px solid rgba(255,255,255,0.4);
+        color: #fff;
+      }
+      .hero-btn.alt { background: rgba(255,255,255,0.15); }
       .grid {
         margin-top: 16px;
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: 1.2fr 1fr;
         gap: 16px;
       }
       .card {
@@ -43,6 +61,15 @@
         padding: 16px;
       }
       .card h2 { margin: 0 0 14px; color: var(--navy); font-size: 18px; }
+      .subhead {
+        margin: 0 0 10px;
+        padding: 8px 10px;
+        border-radius: 8px;
+        background: var(--soft);
+        color: var(--blue);
+        font-weight: 700;
+        font-size: 13px;
+      }
       .field { margin-bottom: 12px; }
       label { display: block; margin-bottom: 6px; font-size: 13px; color: var(--muted); }
       input, select {
@@ -71,6 +98,29 @@
         font-size: 12px;
         color: #7a8496;
       }
+      .mini-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+      .mini-card {
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        padding: 10px;
+        background: #fafcff;
+      }
+      .mini-card h3 {
+        margin: 0 0 6px;
+        color: var(--blue);
+        font-size: 13px;
+      }
+      .mini-card ul {
+        margin: 0;
+        padding-left: 16px;
+        font-size: 12px;
+        color: #556074;
+      }
+      .mini-card li { margin: 4px 0; }
       .warn {
         margin-top: 12px;
         padding: 10px 12px;
@@ -104,21 +154,32 @@
       }
       .preview-grid div:nth-child(odd) { color: #52607a; }
       .preview-grid div:nth-child(even) { color: #1f2f47; font-weight: 600; }
-      @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+      @media (max-width: 980px) {
+        .grid { grid-template-columns: 1fr; }
+        .hero { flex-direction: column; align-items: flex-start; }
+      }
+      @media (max-width: 620px) { .mini-grid { grid-template-columns: 1fr; } }
     </style>
   </head>
   <body>
     <div class="wrap">
       <div class="hero">
-        <h1>Automated DCF Client Portal</h1>
-        <p>Enter assumptions, optionally upload financials, and download a ready-to-send Excel + Word valuation pack.</p>
+        <div>
+          <h1>DCF Investment Workbench</h1>
+          <p>Structured assumptions, model quality controls, and one-click output pack (Excel + Word).</p>
+        </div>
+        <div class="hero-actions">
+          <a class="hero-btn" href="/guide">Non-Finance Guide</a>
+          <a class="hero-btn alt" href="#generatorForm">Go to Inputs</a>
+        </div>
       </div>
 
       <div id="runWarning" class="warn"></div>
 
       <form id="generatorForm" action="/generate" method="post" enctype="multipart/form-data" class="grid">
         <div class="card">
-          <h2>Company & Data</h2>
+          <h2>Workflow & Inputs</h2>
+          <div class="subhead">Step 1 — Company and source data</div>
           <div class="field">
             <label>Company Name</label>
             <input name="company_name" value="Insurance Agency" required />
@@ -141,14 +202,46 @@
             </select>
           </div>
 
+          <div class="subhead">Step 2 — Forecast and valuation assumptions</div>
+          <div class="mini-grid">
+            <div class="mini-card">
+              <h3>Operating Drivers</h3>
+              <ul>
+                <li>Revenue, EBITDA/SDE, Growth</li>
+                <li>COGS %, Opex %, Capex %</li>
+                <li>Tax rate and working assumptions</li>
+              </ul>
+            </div>
+            <div class="mini-card">
+              <h3>Risk & Valuation</h3>
+              <ul>
+                <li>WACC, Terminal growth</li>
+                <li>Risk-free rate, beta, size premium</li>
+                <li>Cash, debt, and ask/current level</li>
+              </ul>
+            </div>
+          </div>
+
+          <div class="subhead">Scenario Defaults Preview</div>
+
           <div class="preview">
-            <div class="preview-head">Preview Defaults (used when fields are blank)</div>
+            <div class="preview-head">Blank fields use these defaults</div>
             <div class="preview-grid" id="defaultsPreview"></div>
+          </div>
+
+          <div class="subhead" style="margin-top:12px;">Model Quality Controls</div>
+          <div class="mini-card">
+            <ul>
+              <li>Terminal growth capped against long-run GDP assumptions.</li>
+              <li>Minimum spread enforced between WACC and terminal growth.</li>
+              <li>Blended terminal valuation (Gordon + Exit) for balanced output.</li>
+              <li>Checks sheet flags potential integrity and sensitivity risks.</li>
+            </ul>
           </div>
         </div>
 
         <div class="card">
-          <h2>Quick Inputs</h2>
+          <h2>Quick Input Panel</h2>
           <div class="field">
             <label>Revenue ($)</label>
              <input name="revenue" type="number" step="0.01" placeholder="Leave blank to use scenario default" />
@@ -210,7 +303,7 @@
             <input name="size_premium" type="number" step="0.01" placeholder="Leave blank to use scenario default" />
           </div>
           <button class="cta" type="submit">Generate Valuation Files</button>
-          <div class="footer">Any blank field auto-uses selected scenario defaults. Filled fields always override defaults.</div>
+          <div class="footer">Blank fields use scenario defaults. Filled fields override defaults. Output ZIP includes a structured Excel model and Word memo.</div>
         </div>
       </form>
     </div>

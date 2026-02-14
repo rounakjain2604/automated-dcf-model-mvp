@@ -26,6 +26,17 @@ def run_dcf_pipeline(input_path: str | Path, output_path: str | Path, cfg: DCFCo
 
     forecast_result = build_forecast(normalized, cfg.forecast, scenario)
 
+    trailing_ebitda = _latest_account_amount(normalized, "EBITDA")
+    if trailing_ebitda == 0.0:
+        trailing_ebitda = _latest_account_amount(normalized, "Revenue") - _latest_account_amount(normalized, "COGS") - _latest_account_amount(normalized, "Operating Expenses")
+    trailing_depreciation = _latest_account_amount(normalized, "Depreciation")
+    trailing_ebit = trailing_ebitda - trailing_depreciation
+
+    proxy_cost_of_debt = cfg.wacc.risk_free_rate + 0.03
+    debt_balance = max(cfg.valuation.debt, 1.0)
+    proxy_interest_expense = max(debt_balance * proxy_cost_of_debt, 1.0)
+    cfg.wacc.interest_coverage_ratio = max(trailing_ebit / proxy_interest_expense, 0.0)
+
     beta = None
     try:
         beta = fetch_comparable_beta()
@@ -35,17 +46,27 @@ def run_dcf_pipeline(input_path: str | Path, output_path: str | Path, cfg: DCFCo
     wacc = compute_wacc(cfg.wacc, beta_override=beta)
     valuation = run_dcf(forecast_result.forecast, wacc, cfg.valuation)
 
-    audit = _build_checks(forecast_result.forecast, cfg)
-
     valuation_summary = {
         "WACC": wacc.wacc,
         "Enterprise Value (Gordon)": valuation.enterprise_value_gordon,
         "Enterprise Value (Exit)": valuation.enterprise_value_exit,
+        "Enterprise Value (Blended)": valuation.enterprise_value_blended,
         "Equity Value (Gordon)": valuation.equity_value_gordon,
         "Equity Value (Exit)": valuation.equity_value_exit,
+        "Equity Value (Blended)": valuation.equity_value_blended,
         "Implied Price (Gordon)": valuation.implied_share_price_gordon,
         "Implied Price (Exit)": valuation.implied_share_price_exit,
+        "Implied Price (Blended)": valuation.implied_share_price_blended,
+        "Effective Terminal Growth": valuation.effective_terminal_growth_rate,
+        "Terminal WACC Spread": valuation.terminal_wacc_spread,
+        "Implied Exit Multiple (from Gordon)": valuation.implied_exit_multiple_from_gordon,
+        "Implied Perpetuity Growth (from Exit)": valuation.implied_perpetuity_growth_from_exit,
+        "Synthetic Rating": wacc.synthetic_rating,
+        "Cost of Equity": wacc.cost_of_equity,
+        "Post-tax Cost of Debt": wacc.cost_of_debt_after_tax,
     }
+
+    audit = _build_checks(forecast_result.forecast, cfg, valuation_summary)
 
     period_meta = {
         "period_basis": ingested.period_basis,
@@ -88,7 +109,7 @@ def run_dcf_pipeline(input_path: str | Path, output_path: str | Path, cfg: DCFCo
     }
 
 
-def _build_checks(forecast_df: pd.DataFrame, cfg: DCFConfig) -> pd.DataFrame:
+def _build_checks(forecast_df: pd.DataFrame, cfg: DCFConfig, valuation_summary: dict) -> pd.DataFrame:
     rows = []
 
     for _, row in forecast_df.iterrows():
@@ -114,6 +135,27 @@ def _build_checks(forecast_df: pd.DataFrame, cfg: DCFConfig) -> pd.DataFrame:
         }
     )
 
+    spread_floor = cfg.valuation.terminal_spread_floor_bps / 10_000
+    terminal_spread = float(valuation_summary.get("Terminal WACC Spread", 0.0) or 0.0)
+    rows.append(
+        {
+            "period": forecast_df.iloc[-1]["period"],
+            "check": "Terminal Spread (WACC-g) >= Floor",
+            "value": terminal_spread,
+            "status": "PASS" if terminal_spread >= spread_floor else "ALERT",
+        }
+    )
+
+    terminal_fcf = float(forecast_df.iloc[-1]["FCF"])
+    rows.append(
+        {
+            "period": forecast_df.iloc[-1]["period"],
+            "check": "Terminal Year FCF Positive",
+            "value": terminal_fcf,
+            "status": "PASS" if terminal_fcf > 0 else "ALERT",
+        }
+    )
+
     if cfg.valuation.terminal_growth_rate > cfg.valuation.gdp_growth_cap:
         rows.append(
             {
@@ -125,3 +167,11 @@ def _build_checks(forecast_df: pd.DataFrame, cfg: DCFConfig) -> pd.DataFrame:
         )
 
     return pd.DataFrame(rows)
+
+
+def _latest_account_amount(mapped_df: pd.DataFrame, account_name: str) -> float:
+    rows = mapped_df.loc[mapped_df["standard_account"] == account_name, ["period", "amount"]].copy()
+    if rows.empty:
+        return 0.0
+    rows = rows.sort_values("period")
+    return float(rows.iloc[-1]["amount"])
