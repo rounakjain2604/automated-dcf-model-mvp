@@ -52,6 +52,18 @@ def run_dcf_pipeline(input_path: str | Path, output_path: str | Path, cfg: DCFCo
         "has_stub_period": ingested.has_stub_period,
     }
 
+    historical_revenue = (
+        normalized.loc[normalized["standard_account"] == "Revenue", ["period", "amount"]]
+        .groupby("period", as_index=False)["amount"]
+        .sum()
+        .sort_values("period")
+    )
+    historical_growth_3y_avg = 0.0
+    if len(historical_revenue) >= 2:
+        growth = historical_revenue["amount"].pct_change().dropna()
+        if not growth.empty:
+            historical_growth_3y_avg = float(growth.tail(3).mean())
+
     export_workbook(
         output_path,
         cfg=cfg,
@@ -69,6 +81,8 @@ def run_dcf_pipeline(input_path: str | Path, output_path: str | Path, cfg: DCFCo
         "audit": audit,
         "scenario": scenario_name,
         "config": asdict(cfg),
+        "forecast_rows": forecast_result.forecast.to_dict(orient="records"),
+        "historical_growth_3y_avg": historical_growth_3y_avg,
     }
 
 

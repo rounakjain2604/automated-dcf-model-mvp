@@ -81,6 +81,29 @@
         font-size: 13px;
         display: none;
       }
+      .preview {
+        margin-top: 12px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: #f9fbff;
+        overflow: hidden;
+      }
+      .preview-head {
+        background: #eef4ff;
+        padding: 10px 12px;
+        font-size: 13px;
+        color: var(--navy);
+        font-weight: 700;
+      }
+      .preview-grid {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 8px 10px;
+        padding: 10px 12px;
+        font-size: 12px;
+      }
+      .preview-grid div:nth-child(odd) { color: #52607a; }
+      .preview-grid div:nth-child(even) { color: #1f2f47; font-weight: 600; }
       @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
     </style>
   </head>
@@ -106,12 +129,21 @@
             <div class="hint">If no file is uploaded, quick-input values below create a synthetic input set.</div>
           </div>
           <div class="field">
+            <label>Logo (for Word report header) - Optional</label>
+            <input type="file" name="logo_file" accept=".png,.jpg,.jpeg" />
+          </div>
+          <div class="field">
             <label>Scenario</label>
-            <select name="scenario">
+            <select name="scenario" id="scenarioSelect">
               <option>Base</option>
               <option>Bull</option>
               <option>Bear</option>
             </select>
+          </div>
+
+          <div class="preview">
+            <div class="preview-head">Preview Defaults (used when fields are blank)</div>
+            <div class="preview-grid" id="defaultsPreview"></div>
           </div>
         </div>
 
@@ -119,52 +151,127 @@
           <h2>Quick Inputs</h2>
           <div class="field">
             <label>Revenue ($)</label>
-            <input name="revenue" type="number" step="0.01" value="2058911" required />
+             <input name="revenue" type="number" step="0.01" placeholder="Leave blank to use scenario default" />
           </div>
           <div class="field">
             <label>EBITDA / SDE ($)</label>
-            <input name="ebitda" type="number" step="0.01" value="1072911" required />
+             <input name="ebitda" type="number" step="0.01" placeholder="Leave blank to use scenario default" />
           </div>
           <div class="field">
             <label>Growth Rate (%)</label>
-            <input name="growth_rate" type="number" step="0.01" value="3" required />
+             <input name="growth_rate" type="number" step="0.01" placeholder="Leave blank to use scenario default" />
           </div>
           <div class="field">
             <label>WACC / Discount Rate (%)</label>
-            <input name="wacc" type="number" step="0.01" value="24" required />
+            <input name="wacc" type="number" step="0.01" placeholder="Leave blank to use scenario default" />
           </div>
           <div class="field">
             <label>Terminal Growth Rate (%)</label>
-            <input name="terminal_growth" type="number" step="0.01" value="2" required />
+            <input name="terminal_growth" type="number" step="0.01" placeholder="Leave blank to use scenario default" />
           </div>
           <div class="field">
             <label>Cash ($)</label>
-            <input name="cash" type="number" step="0.01" value="50000" />
+            <input name="cash" type="number" step="0.01" placeholder="Leave blank to use scenario default" />
           </div>
           <div class="field">
             <label>Debt ($)</label>
-            <input name="debt" type="number" step="0.01" value="0" />
+            <input name="debt" type="number" step="0.01" placeholder="Leave blank to use scenario default" />
           </div>
           <div class="field">
             <label>Ask Price ($)</label>
-            <input name="ask_price" type="number" step="0.01" value="4000000" />
+            <input name="ask_price" type="number" step="0.01" placeholder="Leave blank to use scenario default" />
+          </div>
+          <div class="field">
+            <label>COGS % of Revenue</label>
+            <input name="cogs_pct" type="number" step="0.01" placeholder="Leave blank to use scenario default" />
+          </div>
+          <div class="field">
+            <label>Opex % of Revenue</label>
+            <input name="opex_pct" type="number" step="0.01" placeholder="Leave blank to use scenario default" />
+          </div>
+          <div class="field">
+            <label>Capex % of Revenue</label>
+            <input name="capex_pct" type="number" step="0.01" placeholder="Leave blank to use scenario default" />
+          </div>
+          <div class="field">
+            <label>Tax Rate (%)</label>
+            <input name="tax_rate" type="number" step="0.01" placeholder="Leave blank to use scenario default" />
+          </div>
+          <div class="field">
+            <label>Risk-Free Rate (%)</label>
+            <input name="risk_free_rate" type="number" step="0.01" placeholder="Leave blank to use scenario default" />
+          </div>
+          <div class="field">
+            <label>Beta</label>
+            <input name="beta" type="number" step="0.01" placeholder="Leave blank to use scenario default" />
+          </div>
+          <div class="field">
+            <label>Size Premium (%)</label>
+            <input name="size_premium" type="number" step="0.01" placeholder="Leave blank to use scenario default" />
           </div>
           <button class="cta" type="submit">Generate Valuation Files</button>
-          <div class="footer">Download includes: premium Excel model + Word summary report.</div>
+          <div class="footer">Any blank field auto-uses selected scenario defaults. Filled fields always override defaults.</div>
         </div>
       </form>
     </div>
 
     <script>
       (function () {
+        var CASE_DEFAULTS = {{ case_defaults|tojson }};
         var form = document.getElementById("generatorForm");
         var warning = document.getElementById("runWarning");
+        var scenarioSelect = document.getElementById("scenarioSelect");
+        var preview = document.getElementById("defaultsPreview");
+
+        function fmtMoney(v) {
+          return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(v);
+        }
+
+        function fmtPct(v) {
+          return v.toFixed(2) + "%";
+        }
+
+        function renderPreview() {
+          var key = scenarioSelect.value;
+          var d = CASE_DEFAULTS[key] || CASE_DEFAULTS.Base;
+          preview.innerHTML = "";
+
+          var items = [
+            ["Revenue", fmtMoney(d.revenue)],
+            ["EBITDA / SDE", fmtMoney(d.ebitda)],
+            ["Growth Rate", fmtPct(d.growth_rate)],
+            ["WACC", fmtPct(d.wacc)],
+            ["Terminal Growth", fmtPct(d.terminal_growth)],
+            ["COGS %", fmtPct(d.cogs_pct)],
+            ["Opex %", fmtPct(d.opex_pct)],
+            ["Capex %", fmtPct(d.capex_pct)],
+            ["Tax Rate", fmtPct(d.tax_rate)],
+            ["Risk-Free Rate", fmtPct(d.risk_free_rate)],
+            ["Beta", d.beta.toFixed(2)],
+            ["Size Premium", fmtPct(d.size_premium)],
+            ["Cash", fmtMoney(d.cash)],
+            ["Debt", fmtMoney(d.debt)],
+            ["Ask Price", fmtMoney(d.ask_price)]
+          ];
+
+          items.forEach(function (row) {
+            var l = document.createElement("div");
+            var v = document.createElement("div");
+            l.textContent = row[0];
+            v.textContent = row[1];
+            preview.appendChild(l);
+            preview.appendChild(v);
+          });
+        }
 
         if (window.location.protocol === "file:") {
           form.action = "http://127.0.0.1:5000/generate";
           warning.style.display = "block";
           warning.textContent = "You opened this HTML file directly. Start the Flask app (python webapp.py) and open http://127.0.0.1:5000 for full functionality.";
         }
+
+        scenarioSelect.addEventListener("change", renderPreview);
+        renderPreview();
       })();
     </script>
   </body>

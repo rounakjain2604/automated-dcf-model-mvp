@@ -128,6 +128,15 @@ What it does:
 - Generates a premium Excel model and Word valuation memo.
 - Returns a downloadable ZIP file containing both deliverables.
 
+Word report quality (premium mode):
+- 1-minute executive page with football-field scenario chart and KPI table.
+- Dynamic narrative text based on WACC, terminal growth, and upside.
+- WACC sanity-check breakdown and growth-vs-history commentary.
+- Financial health visuals (revenue bridge and margin trend charts) + FCF build table.
+- Sensitivity/scenario section with risk-warning narrative.
+- Peer comparison table with premium/discount context.
+- Optional logo in report header (upload in portal).
+
 ## Run with default assumptions
 ```bash
 python -m src.dcf_generator.main --input data/sample_financials.csv --output output/dcf_model.xlsx --scenario Base
