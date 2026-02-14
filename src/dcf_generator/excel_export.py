@@ -276,7 +276,14 @@ def _write_valuation(wb: Workbook, last_forecast_row: int) -> None:
         ws[f"A{idx}"] = metric
         ws[f"B{idx}"] = formula
         ws[f"B{idx}"].font = FORMULA_FONT
-        ws[f"B{idx}"].number_format = ACCOUNTING_FMT
+        if metric == "WACC":
+            ws[f"B{idx}"].number_format = PCT_FMT
+        elif "Implied Price" in metric:
+            ws[f"B{idx}"].number_format = PRICE_FMT
+        elif "Terminal FCF" in metric or "Terminal EBITDA" in metric:
+            ws[f"B{idx}"].number_format = ACCOUNTING_FMT
+        else:
+            ws[f"B{idx}"].number_format = MILLIONS_FMT
         ws[f"A{idx}"].border = THIN_BORDER
         ws[f"B{idx}"].border = THIN_BORDER
         if idx % 2 == 0:
