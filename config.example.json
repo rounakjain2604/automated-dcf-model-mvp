@@ -1,0 +1,38 @@
+{
+  "forecast": {
+    "years": 5,
+    "revenue_method": "cagr",
+    "revenue_cagr": 0.09,
+    "cogs_method": "pct_revenue",
+    "cogs_pct_revenue": 0.44,
+    "opex_method": "pct_revenue",
+    "opex_pct_revenue": 0.24,
+    "dso": 46,
+    "dpo": 39,
+    "dio": 52,
+    "capex_method": "pct_revenue",
+    "capex_pct_revenue": 0.045,
+    "depreciation_rate": 0.11,
+    "tax_rate": 0.25
+  },
+  "wacc": {
+    "risk_free_rate": 0.043,
+    "market_risk_premium": 0.055,
+    "beta": 1.08,
+    "target_debt_weight": 0.3,
+    "target_equity_weight": 0.7,
+    "interest_coverage_ratio": 5.5,
+    "tax_rate": 0.25
+  },
+  "valuation": {
+    "terminal_growth_rate": 0.025,
+    "exit_ev_ebitda_multiple": 9.5,
+    "discount_convention": "mid_year",
+    "cash": 230000,
+    "debt": 420000,
+    "minority_interest": 0,
+    "preferred_stock": 0,
+    "fully_diluted_shares": 1000000,
+    "gdp_growth_cap": 0.035
+  }
+}

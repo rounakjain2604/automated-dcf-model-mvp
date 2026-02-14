@@ -1,0 +1,19 @@
+period,account,statement,amount,is_non_recurring
+2023-12-31,Revenue,IS,2000000,false
+2023-12-31,COGS,IS,340000,false
+2023-12-31,Operating Expenses,IS,620000,false
+2023-12-31,Depreciation,IS,25000,false
+2023-12-31,Accounts Receivable,BS,225000,false
+2023-12-31,Inventory,BS,15000,false
+2023-12-31,Accounts Payable,BS,60000,false
+2023-12-31,Cash,BS,50000,false
+2023-12-31,Debt,BS,0,false
+2024-12-31,Revenue,IS,2058911,false
+2024-12-31,COGS,IS,350000,false
+2024-12-31,Operating Expenses,IS,636000,false
+2024-12-31,Depreciation,IS,25000,false
+2024-12-31,Accounts Receivable,BS,232000,false
+2024-12-31,Inventory,BS,16000,false
+2024-12-31,Accounts Payable,BS,62000,false
+2024-12-31,Cash,BS,50000,false
+2024-12-31,Debt,BS,0,false

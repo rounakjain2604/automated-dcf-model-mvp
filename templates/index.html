@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DCF Client Portal</title>
+    <style>
+      :root {
+        --navy: #0f243e;
+        --dark: #2f2f2f;
+        --muted: #5a6473;
+        --bg: #f4f6fa;
+        --card: #ffffff;
+        --line: #e3e8f0;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Segoe UI", Arial, sans-serif;
+        background: var(--bg);
+        color: var(--dark);
+      }
+      .wrap { max-width: 1050px; margin: 28px auto; padding: 0 16px; }
+      .hero {
+        background: linear-gradient(135deg, #0f243e 0%, #1f4e78 100%);
+        color: white;
+        border-radius: 14px;
+        padding: 20px 24px;
+        box-shadow: 0 8px 24px rgba(15, 36, 62, 0.18);
+      }
+      .hero h1 { margin: 0 0 6px; font-size: 26px; }
+      .hero p { margin: 0; color: #deebff; }
+      .grid {
+        margin-top: 16px;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 16px;
+      }
+      .card h2 { margin: 0 0 14px; color: var(--navy); font-size: 18px; }
+      .field { margin-bottom: 12px; }
+      label { display: block; margin-bottom: 6px; font-size: 13px; color: var(--muted); }
+      input, select {
+        width: 100%;
+        border: 1px solid #cfd8e6;
+        border-radius: 8px;
+        padding: 10px 11px;
+        font-size: 14px;
+        background: #fff;
+      }
+      .hint { font-size: 12px; color: #7a8496; margin-top: 4px; }
+      .cta {
+        margin-top: 14px;
+        width: 100%;
+        padding: 12px;
+        border: 0;
+        border-radius: 10px;
+        background: #1f4e78;
+        color: white;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .cta:hover { filter: brightness(1.05); }
+      .footer {
+        margin-top: 14px;
+        font-size: 12px;
+        color: #7a8496;
+      }
+      .warn {
+        margin-top: 12px;
+        padding: 10px 12px;
+        border-radius: 8px;
+        border: 1px solid #f1c27d;
+        background: #fff7e8;
+        color: #6f4f1f;
+        font-size: 13px;
+        display: none;
+      }
+      @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="hero">
+        <h1>Automated DCF Client Portal</h1>
+        <p>Enter assumptions, optionally upload financials, and download a ready-to-send Excel + Word valuation pack.</p>
+      </div>
+
+      <div id="runWarning" class="warn"></div>
+
+      <form id="generatorForm" action="/generate" method="post" enctype="multipart/form-data" class="grid">
+        <div class="card">
+          <h2>Company & Data</h2>
+          <div class="field">
+            <label>Company Name</label>
+            <input name="company_name" value="Insurance Agency" required />
+          </div>
+          <div class="field">
+            <label>Financial File (.csv/.xlsx) - Optional</label>
+            <input type="file" name="financial_file" accept=".csv,.xlsx,.xls" />
+            <div class="hint">If no file is uploaded, quick-input values below create a synthetic input set.</div>
+          </div>
+          <div class="field">
+            <label>Scenario</label>
+            <select name="scenario">
+              <option>Base</option>
+              <option>Bull</option>
+              <option>Bear</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Quick Inputs</h2>
+          <div class="field">
+            <label>Revenue ($)</label>
+            <input name="revenue" type="number" step="0.01" value="2058911" required />
+          </div>
+          <div class="field">
+            <label>EBITDA / SDE ($)</label>
+            <input name="ebitda" type="number" step="0.01" value="1072911" required />
+          </div>
+          <div class="field">
+            <label>Growth Rate (%)</label>
+            <input name="growth_rate" type="number" step="0.01" value="3" required />
+          </div>
+          <div class="field">
+            <label>WACC / Discount Rate (%)</label>
+            <input name="wacc" type="number" step="0.01" value="24" required />
+          </div>
+          <div class="field">
+            <label>Terminal Growth Rate (%)</label>
+            <input name="terminal_growth" type="number" step="0.01" value="2" required />
+          </div>
+          <div class="field">
+            <label>Cash ($)</label>
+            <input name="cash" type="number" step="0.01" value="50000" />
+          </div>
+          <div class="field">
+            <label>Debt ($)</label>
+            <input name="debt" type="number" step="0.01" value="0" />
+          </div>
+          <div class="field">
+            <label>Ask Price ($)</label>
+            <input name="ask_price" type="number" step="0.01" value="4000000" />
+          </div>
+          <button class="cta" type="submit">Generate Valuation Files</button>
+          <div class="footer">Download includes: premium Excel model + Word summary report.</div>
+        </div>
+      </form>
+    </div>
+
+    <script>
+      (function () {
+        var form = document.getElementById("generatorForm");
+        var warning = document.getElementById("runWarning");
+
+        if (window.location.protocol === "file:") {
+          form.action = "http://127.0.0.1:5000/generate";
+          warning.style.display = "block";
+          warning.textContent = "You opened this HTML file directly. Start the Flask app (python webapp.py) and open http://127.0.0.1:5000 for full functionality.";
+        }
+      })();
+    </script>
+  </body>
+</html>
