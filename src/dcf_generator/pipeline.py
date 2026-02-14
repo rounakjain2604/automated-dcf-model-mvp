@@ -72,6 +72,8 @@ def run_dcf_pipeline(input_path: str | Path, output_path: str | Path, cfg: DCFCo
         period_meta=period_meta,
         forecast_df=forecast_result.forecast,
         wacc_result=wacc,
+        valuation_summary=valuation_summary,
+        historical_growth_3y_avg=historical_growth_3y_avg,
     )
 
     return {

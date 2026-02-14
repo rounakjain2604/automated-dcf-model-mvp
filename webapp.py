@@ -10,7 +10,7 @@ import matplotlib
 import pandas as pd
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.shared import Pt
+from docx.shared import Pt, Inches, RGBColor
 from flask import Flask, render_template, request, send_file
 
 from src.dcf_generator.config import DCFConfig
@@ -251,29 +251,68 @@ def _build_chart_revenue_bridge(forecast_df: pd.DataFrame, out_path: Path) -> No
     plt.close(fig)
 
 
+def _build_chart_fcf_area(forecast_df: pd.DataFrame, out_path: Path) -> None:
+    years = [f"{i+1}Y" for i in range(len(forecast_df))]
+    fcf_vals = (forecast_df["FCF"].astype(float) / 1_000_000).tolist()
+
+    fig, ax = plt.subplots(figsize=(4.8, 2.8))
+    ax.plot(years, fcf_vals, color="#1F4E78", linewidth=2.2)
+    ax.fill_between(years, fcf_vals, color="#5C7EA8", alpha=0.75)
+    ax.set_title("Unlevered Free Cash Flow Projection ($M)", fontsize=10, fontweight="bold")
+    ax.grid(axis="y", linestyle="--", alpha=0.25)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_color("#AAB7C8")
+    ax.spines["bottom"].set_color("#AAB7C8")
+    ax.tick_params(axis="x", labelsize=8)
+    ax.tick_params(axis="y", labelsize=8)
+    ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda y, _: f"${y:,.1f}"))
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=220)
+    plt.close(fig)
+
+
+def _read_report_data(excel_path: Path) -> tuple[dict[str, float | str], pd.DataFrame]:
+    metrics_df = pd.read_excel(excel_path, sheet_name="ReportData", usecols="A:B")
+    metrics: dict[str, float | str] = {}
+    for _, row in metrics_df.dropna(how="all").iterrows():
+        key = str(row.get("metric", "")).strip()
+        value = row.get("value")
+        if key:
+            metrics[key] = value
+
+    forecast = pd.read_excel(excel_path, sheet_name="ReportData", usecols="D:J")
+    forecast = forecast.dropna(how="all")
+    return metrics, forecast
+
+
 def _build_word_report(
     output_path: Path,
+    excel_path: Path,
     company_name: str,
-    result: dict,
     ask_price: float,
     scenario: str,
     logo_path: Path | None,
     input_ebitda: float,
 ) -> None:
-    valuation = result["valuation_summary"]
-    cfg = result["config"]
-    ev_g = float(valuation["Enterprise Value (Gordon)"])
-    ev_e = float(valuation["Enterprise Value (Exit)"])
-    eq_g = float(valuation["Equity Value (Gordon)"])
-    eq_e = float(valuation["Equity Value (Exit)"])
-    wacc = float(valuation["WACC"])
-    terminal_g = float(cfg["valuation"]["terminal_growth_rate"])
+    metrics, forecast_df = _read_report_data(excel_path)
 
-    forecast_rows = result.get("forecast_rows", [])
-    forecast_df = pd.DataFrame(forecast_rows)
+    ev_g = float(metrics.get("ev_gordon", 0.0) or 0.0)
+    ev_e = float(metrics.get("ev_exit", 0.0) or 0.0)
+    eq_g = float(metrics.get("eq_gordon", 0.0) or 0.0)
+    eq_e = float(metrics.get("eq_exit", 0.0) or 0.0)
+    wacc = float(metrics.get("wacc", 0.0) or 0.0)
+    terminal_g = float(metrics.get("terminal_growth", 0.0) or 0.0)
+    risk_free = float(metrics.get("risk_free", 0.0) or 0.0)
+    beta = float(metrics.get("beta", 0.0) or 0.0)
+    mrp = float(metrics.get("mrp", 0.0) or 0.0)
+    size_premium = float(metrics.get("size_premium", 0.0) or 0.0)
+    projected_growth = float(metrics.get("revenue_cagr", 0.0) or 0.0)
+    historical_avg = float(metrics.get("historical_growth_3y_avg", 0.0) or 0.0)
+
     if forecast_df.empty:
         forecast_df = pd.DataFrame(
-            [{"period": "Y1", "Revenue": 0.0, "EBITDA": 0.0, "Capex": 0.0, "Delta NWC": 0.0, "FCF": 0.0, "NOPAT": 0.0}]
+            [{"period": "Y1", "Revenue": 0.0, "COGS": 0.0, "EBITDA": 0.0, "Capex": 0.0, "Delta NWC": 0.0, "FCF": 0.0}]
         )
 
     low = min(ev_g, ev_e)
@@ -288,69 +327,119 @@ def _build_word_report(
     doc = Document()
     style = doc.styles["Normal"]
     style.font.name = "Segoe UI"
-    style.font.size = Pt(10.5)
+    style.font.size = Pt(10)
+    style.paragraph_format.space_after = Pt(2)
+    style.paragraph_format.space_before = Pt(0)
+    style.paragraph_format.line_spacing = 1.0
 
     section = doc.sections[0]
+    section.top_margin = Inches(0.45)
+    section.bottom_margin = Inches(0.45)
+    section.left_margin = Inches(0.55)
+    section.right_margin = Inches(0.55)
+
+    # Header/footer style
     if logo_path and logo_path.exists():
         header_p = section.header.paragraphs[0]
         run = header_p.add_run()
         run.add_picture(str(logo_path), width=Pt(80))
         header_p.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    section.header.paragraphs[0].add_run(f"\nPROJECT {company_name.upper()} | VALUATION REPORT")
+    section.header.paragraphs[0].add_run(f"  Confidential Valuation Report — [{company_name}] | Date: {date.today().strftime('%B %d, %Y')}")
+    section.header.paragraphs[0].runs[-1].font.size = Pt(9)
     section.footer.paragraphs[0].text = "Strictly Private & Confidential | Prepared by Rounak Jain, CFA L2 Candidate"
+    section.footer.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.LEFT
 
-    doc.add_heading("1) 1-Minute Executive Summary", level=1)
-    doc.add_paragraph(f"Date: {date.today().isoformat()} | Scenario: {scenario}")
+    # Visual top divider
+    divider = doc.add_paragraph("_" * 120)
+    divider.runs[0].font.color.rgb = RGBColor(187, 194, 204)
+    divider.paragraph_format.space_after = Pt(1)
+
+    title = doc.add_paragraph("Executive Valuation Summary")
+    title.runs[0].font.size = Pt(18)
+    title.runs[0].font.bold = True
+    title.runs[0].font.color.rgb = RGBColor(24, 37, 56)
+    title.paragraph_format.space_after = Pt(6)
+
+    summary = doc.add_paragraph(
+        f"Based on our DCF analysis, {company_name} implies an enterprise value range of {_fmt_m(low)} to {_fmt_m(high)} "
+        f"under {scenario} assumptions. Using a WACC of {wacc:.1%} and terminal growth of {terminal_g:.1%}, "
+        f"the midpoint value is {_fmt_m(midpoint)}, indicating {upside_pct:.1%} upside versus the current/ask level."
+    )
+    summary.paragraph_format.space_after = Pt(8)
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         ff_chart = tmp_path / "football.png"
         margin_chart = tmp_path / "margin.png"
         revenue_chart = tmp_path / "revenue.png"
+        fcf_area = tmp_path / "fcf_area.png"
         _build_chart_football(bear, midpoint, bull, ff_chart)
         _build_chart_margin(forecast_df, margin_chart)
         _build_chart_revenue_bridge(forecast_df, revenue_chart)
+        _build_chart_fcf_area(forecast_df, fcf_area)
 
-        doc.add_picture(str(ff_chart), width=Pt(430))
+        split = doc.add_table(rows=1, cols=2)
+        split.autofit = False
+        split.columns[0].width = Inches(3.55)
+        split.columns[1].width = Inches(3.55)
 
-        kpi = doc.add_table(rows=1, cols=4)
+        left = split.cell(0, 0)
+        right = split.cell(0, 1)
+
+        left.add_paragraph("Key Valuation Metrics").runs[0].bold = True
+        left.paragraphs[-1].runs[0].font.color.rgb = RGBColor(31, 78, 120)
+
+        kpi = left.add_table(rows=1, cols=4)
         kpi.style = "Light Grid Accent 1"
         kpi.rows[0].cells[0].text = "Metric"
-        kpi.rows[0].cells[1].text = "Enterprise Value"
-        kpi.rows[0].cells[2].text = "Equity Value"
-        kpi.rows[0].cells[3].text = "Implied Share Price"
+        kpi.rows[0].cells[1].text = "Base"
+        kpi.rows[0].cells[2].text = "Bear"
+        kpi.rows[0].cells[3].text = "Bull"
 
-        row_g = kpi.add_row().cells
-        row_g[0].text = "Gordon Growth"
-        row_g[1].text = _fmt_m(ev_g)
-        row_g[2].text = _fmt_m(eq_g)
-        row_g[3].text = f"${eq_g:,.0f}"
+        def _krow(name: str, base_v: float, bear_v: float, bull_v: float, money: bool = True):
+            rr = kpi.add_row().cells
+            rr[0].text = name
+            if money:
+                rr[1].text = _fmt_m(base_v)
+                rr[2].text = _fmt_m(bear_v)
+                rr[3].text = _fmt_m(bull_v)
+            else:
+                rr[1].text = f"{base_v:.1%}"
+                rr[2].text = f"{bear_v:.1%}"
+                rr[3].text = f"{bull_v:.1%}"
 
-        row_e = kpi.add_row().cells
-        row_e[0].text = "Exit Multiple"
-        row_e[1].text = _fmt_m(ev_e)
-        row_e[2].text = _fmt_m(eq_e)
-        row_e[3].text = f"${eq_e:,.0f}"
+        _krow("Enterprise Value", midpoint, bear, bull)
+        _krow("Equity Value", (eq_g + eq_e) / 2, (eq_g + eq_e) / 2 * 0.9, (eq_g + eq_e) / 2 * 1.1)
+        _krow("Revenue CAGR", projected_growth, projected_growth - 0.01, projected_growth + 0.01, money=False)
+        _krow("Unlevered Free Cash Flow", float(forecast_df["FCF"].iloc[-1]), float(forecast_df["FCF"].iloc[-1]) * 0.9, float(forecast_df["FCF"].iloc[-1]) * 1.1)
         _zebra_table(kpi)
 
-        doc.add_paragraph(
+        right.add_paragraph("Unlevered Free Cash Flow Projection ($Y)").runs[0].bold = True
+        right.paragraphs[-1].runs[0].font.color.rgb = RGBColor(31, 78, 120)
+        right.add_paragraph().add_run().add_picture(str(fcf_area), width=Inches(3.35))
+
+        hook = doc.add_paragraph(
             f"Based on a WACC of {wacc:.1%} and terminal growth of {terminal_g:.1%}, "
             f"{company_name} shows an intrinsic value range of {_fmt_m(low)} to {_fmt_m(high)}, "
             f"implying {upside_pct:.1%} upside vs current/ask level."
         )
+        hook.runs[0].bold = True
+        hook.paragraph_format.space_before = Pt(6)
+        hook.paragraph_format.space_after = Pt(8)
 
         doc.add_page_break()
-        doc.add_heading("2) Assumption Sanity Check", level=1)
+        sec_title = doc.add_heading("2) Assumption Sanity Check", level=1)
+        sec_title.runs[0].font.color.rgb = RGBColor(24, 37, 56)
 
         wacc_table = doc.add_table(rows=1, cols=2)
         wacc_table.style = "Light Grid Accent 1"
         wacc_table.rows[0].cells[0].text = "WACC Component"
         wacc_table.rows[0].cells[1].text = "Value"
         for label, value in [
-            ("Risk-Free Rate", cfg["wacc"]["risk_free_rate"]),
-            ("Beta", cfg["wacc"]["beta"]),
-            ("Equity Risk Premium", cfg["wacc"]["market_risk_premium"]),
-            ("Size Premium", cfg["wacc"]["size_premium"]),
+            ("Risk-Free Rate", risk_free),
+            ("Beta", beta),
+            ("Equity Risk Premium", mrp),
+            ("Size Premium", size_premium),
             ("WACC", wacc),
         ]:
             r = wacc_table.add_row().cells
@@ -358,16 +447,17 @@ def _build_word_report(
             r[1].text = f"{value:.2%}" if label != "Beta" else f"{value:.2f}"
         _zebra_table(wacc_table)
 
-        historical_avg = float(result.get("historical_growth_3y_avg", 0.0))
-        projected = float(cfg["forecast"]["revenue_cagr"])
-        tone = "conservative" if projected <= historical_avg else "aggressive"
-        relation = "lower" if projected <= historical_avg else "higher"
+        tone = "conservative" if projected_growth <= historical_avg else "aggressive"
+        relation = "lower" if projected_growth <= historical_avg else "higher"
         doc.add_paragraph(
-            f"The projected revenue CAGR of {projected:.1%} is {relation} than the historical 3-year average "
+            f"The projected revenue CAGR of {projected_growth:.1%} is {relation} than the historical 3-year average "
             f"of {historical_avg:.1%}, reflecting a {tone} outlook."
         )
 
-        doc.add_page_break()
+        doc.add_paragraph(
+            f"WACC build: Risk-Free ({risk_free:.2%}) + Beta ({beta:.2f}) × ERP ({mrp:.2%}) + Size Premium ({size_premium:.2%})."
+        )
+
         doc.add_heading("3) Financial Health Check", level=1)
         doc.add_picture(str(revenue_chart), width=Pt(430))
         doc.add_picture(str(margin_chart), width=Pt(430))
@@ -392,7 +482,6 @@ def _build_word_report(
             r[2].text = note
         _zebra_table(fcf_table)
 
-        doc.add_page_break()
         doc.add_heading("4) Sensitivity & Scenario Analysis", level=1)
         sens = doc.add_table(rows=1, cols=4)
         sens.style = "Light Grid Accent 1"
@@ -421,7 +510,6 @@ def _build_word_report(
             "A 1% increase in WACC can compress equity value materially, often more than similar shifts in terminal growth."
         )
 
-        doc.add_page_break()
         doc.add_heading("5) Peer Comparison (Relative Valuation)", level=1)
         target_multiple = midpoint / max(input_ebitda, 1.0)
         peer_rows = [
@@ -506,8 +594,8 @@ def generate():
         excel_path = tmp_path / f"{company_name.replace(' ', '_').lower()}_valuation.xlsx"
         word_path = tmp_path / f"{company_name.replace(' ', '_').lower()}_valuation_report.docx"
 
-        result = run_dcf_pipeline(input_path, excel_path, cfg, scenario_name=scenario)
-        _build_word_report(word_path, company_name, result, ask_price, scenario, logo_path, input_ebitda)
+        run_dcf_pipeline(input_path, excel_path, cfg, scenario_name=scenario)
+        _build_word_report(word_path, excel_path, company_name, ask_price, scenario, logo_path, input_ebitda)
 
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:

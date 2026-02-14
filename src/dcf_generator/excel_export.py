@@ -44,6 +44,8 @@ def export_workbook(
     period_meta: dict,
     forecast_df: pd.DataFrame,
     wacc_result: WACCResult,
+    valuation_summary: dict,
+    historical_growth_3y_avg: float = 0.0,
 ) -> None:
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -59,11 +61,7 @@ def export_workbook(
     _write_sensitivity(wb, cfg, last_forecast_row, wacc_result.wacc)
     _write_dashboard(wb)
     _write_checks(wb, cfg.forecast.years)
-    _write_page1_executive_summary(wb, cfg.forecast.years)
-    _write_page2_logic_check(wb, cfg.forecast.years)
-    _write_page3_risk_map(wb, cfg.forecast.years)
-    _write_page4_engine_room(wb, cfg.forecast.years)
-    _write_print_report(wb)
+    _write_report_data(wb, forecast_df, valuation_summary, cfg, scenario_name, historical_growth_3y_avg)
     _apply_workbook_theme(wb)
 
     wb.save(output_path)
@@ -279,7 +277,7 @@ def _write_valuation(wb: Workbook, last_forecast_row: int) -> None:
         if metric == "WACC":
             ws[f"B{idx}"].number_format = PCT_FMT
         elif "Implied Price" in metric:
-            ws[f"B{idx}"].number_format = PRICE_FMT
+            ws[f"B{idx}"].number_format = MILLIONS_FMT
         elif "Terminal FCF" in metric or "Terminal EBITDA" in metric:
             ws[f"B{idx}"].number_format = ACCOUNTING_FMT
         else:
@@ -368,7 +366,7 @@ def _write_sensitivity(wb: Workbook, cfg: DCFConfig, last_forecast_row: int, bas
 def _write_dashboard(wb: Workbook) -> None:
     ws = wb.create_sheet("Dashboard")
     ws.sheet_view.showGridLines = False
-    ws.merge_cells("A1:J1")
+    ws.merge_cells("A1:N1")
     ws["A1"] = "Executive Dashboard"
     ws["A1"].font = Font(bold=True, size=15, color="FFFFFF")
     ws["A1"].fill = TITLE_FILL
@@ -382,8 +380,8 @@ def _write_dashboard(wb: Workbook) -> None:
         ("WACC", "=Valuation!B2", PCT_FMT),
         ("EV (Gordon)", "=Valuation!B10", MILLIONS_FMT),
         ("EV (Exit)", "=Valuation!B11", MILLIONS_FMT),
-        ("Price (Gordon)", "=Valuation!B14", PRICE_FMT),
-        ("Price (Exit)", "=Valuation!B15", PRICE_FMT),
+        ("Price (Gordon)", "=Valuation!B14", MILLIONS_FMT),
+        ("Price (Exit)", "=Valuation!B15", MILLIONS_FMT),
     ]
     for idx, (label, formula, fmt) in enumerate(kpi_metrics, start=2):
         ws.cell(row=4, column=idx, value=label)
@@ -411,8 +409,8 @@ def _write_dashboard(wb: Workbook) -> None:
     ws["B12"] = "=Valuation!B15"
     ws["B11"].font = FORMULA_FONT
     ws["B12"].font = FORMULA_FONT
-    ws["B11"].number_format = PRICE_FMT
-    ws["B12"].number_format = PRICE_FMT
+    ws["B11"].number_format = MILLIONS_FMT
+    ws["B12"].number_format = MILLIONS_FMT
     ws["A11"].border = THIN_BORDER
     ws["A12"].border = THIN_BORDER
     ws["B11"].border = THIN_BORDER
@@ -486,34 +484,100 @@ def _write_dashboard(wb: Workbook) -> None:
     ws.conditional_formatting.add("H16:H17", FormulaRule(formula=['H16="PASS"'], fill=PASS_FILL))
     ws.conditional_formatting.add("H16:H17", FormulaRule(formula=['H16="ALERT"'], fill=ALERT_FILL))
 
+    ws["J10"] = "Year"
+    ws["K10"] = "FCF"
+    _style_header_row(ws, 10, 11)
+    for row in range(11, 16):
+        src_row = row - 9
+        ws[f"J{row}"] = f"=Forecast!A{src_row}"
+        ws[f"K{row}"] = f"=Forecast!O{src_row}"
+        ws[f"J{row}"].border = THIN_BORDER
+        ws[f"K{row}"].border = THIN_BORDER
+        ws[f"K{row}"].number_format = MILLIONS_FMT
+
     chart = BarChart()
     chart.title = "Implied Price by Method"
     chart.style = 10
+    chart.type = "col"
+    chart.grouping = "clustered"
     data = Reference(ws, min_col=2, min_row=10, max_row=12)
     categories = Reference(ws, min_col=1, min_row=11, max_row=12)
     chart.add_data(data, titles_from_data=True)
     chart.set_categories(categories)
-    chart.height = 6
-    chart.width = 7
-    ws.add_chart(chart, "D2")
+    chart.height = 4.8
+    chart.width = 5.8
+    ws.add_chart(chart, "H2")
 
     trend = LineChart()
     trend.title = "FCF Trend"
     trend.style = 2
     trend.y_axis.title = "FCF"
     trend.x_axis.title = "Year"
-    trend_data = Reference(ws.parent["Forecast"], min_col=15, min_row=1, max_row=6)
-    trend_cats = Reference(ws.parent["Forecast"], min_col=1, min_row=2, max_row=6)
+    trend_data = Reference(ws, min_col=11, min_row=10, max_row=15)
+    trend_cats = Reference(ws, min_col=10, min_row=11, max_row=15)
     trend.add_data(trend_data, titles_from_data=True)
     trend.set_categories(trend_cats)
-    trend.height = 6
-    trend.width = 7
-    ws.add_chart(trend, "D10")
+    trend.legend = None
+    trend.height = 4.8
+    trend.width = 5.8
+    ws.add_chart(trend, "H9")
 
-    ws.print_area = "A1:J35"
+    ws.print_area = "A1:N35"
     ws.page_setup.fitToWidth = 1
     ws.page_setup.fitToHeight = 0
     _autosize(ws)
+
+
+def _write_report_data(
+    wb: Workbook,
+    forecast_df: pd.DataFrame,
+    valuation_summary: dict,
+    cfg: DCFConfig,
+    scenario_name: str,
+    historical_growth_3y_avg: float,
+) -> None:
+    ws = wb.create_sheet("ReportData")
+    ws["A1"] = "metric"
+    ws["B1"] = "value"
+    metrics = [
+        ("scenario", scenario_name),
+        ("wacc", float(valuation_summary.get("WACC", 0.0))),
+        ("ev_gordon", float(valuation_summary.get("Enterprise Value (Gordon)", 0.0))),
+        ("ev_exit", float(valuation_summary.get("Enterprise Value (Exit)", 0.0))),
+        ("eq_gordon", float(valuation_summary.get("Equity Value (Gordon)", 0.0))),
+        ("eq_exit", float(valuation_summary.get("Equity Value (Exit)", 0.0))),
+        ("price_gordon", float(valuation_summary.get("Implied Price (Gordon)", 0.0))),
+        ("price_exit", float(valuation_summary.get("Implied Price (Exit)", 0.0))),
+        ("risk_free", cfg.wacc.risk_free_rate),
+        ("beta", cfg.wacc.beta),
+        ("mrp", cfg.wacc.market_risk_premium),
+        ("size_premium", cfg.wacc.size_premium),
+        ("terminal_growth", cfg.valuation.terminal_growth_rate),
+        ("revenue_cagr", cfg.forecast.revenue_cagr),
+        ("historical_growth_3y_avg", historical_growth_3y_avg),
+    ]
+    for idx, (key, value) in enumerate(metrics, start=2):
+        ws[f"A{idx}"] = key
+        ws[f"B{idx}"] = value
+
+    ws["D1"] = "period"
+    ws["E1"] = "Revenue"
+    ws["F1"] = "COGS"
+    ws["G1"] = "EBITDA"
+    ws["H1"] = "Capex"
+    ws["I1"] = "Delta NWC"
+    ws["J1"] = "FCF"
+
+    for row_idx, (_, row) in enumerate(forecast_df.iterrows(), start=2):
+        ws.cell(row=row_idx, column=4, value=str(row.get("period", ""))[:10])
+        ws.cell(row=row_idx, column=5, value=float(row.get("Revenue", 0.0)))
+        ws.cell(row=row_idx, column=6, value=float(row.get("COGS", 0.0)))
+        ws.cell(row=row_idx, column=7, value=float(row.get("EBITDA", 0.0)))
+        ws.cell(row=row_idx, column=8, value=float(row.get("Capex", 0.0)))
+        ws.cell(row=row_idx, column=9, value=float(row.get("Delta NWC", 0.0)))
+        ws.cell(row=row_idx, column=10, value=float(row.get("FCF", 0.0)))
+
+    ws.sheet_state = "hidden"
 
 
 def _write_checks(wb: Workbook, years: int) -> None:
@@ -1064,30 +1128,22 @@ def _input_number_format(label: str, value) -> str:
 
 def _apply_workbook_theme(wb: Workbook) -> None:
     tab_colors = {
-        "Page_1_Executive": "1F4E78",
-        "Page_2_Logic_Check": "3A3A3A",
-        "Page_3_Risk_Map": "1F4E78",
-        "Page_4_Engine_Room": "3A3A3A",
-        "PRINT_REPORT": "0F243E",
         "Dashboard": "1F4E78",
         "Inputs": "3A3A3A",
         "Forecast": "1F4E78",
         "Valuation": "3A3A3A",
         "Sensitivity": "1F4E78",
         "Checks": "3A3A3A",
+        "ReportData": "0F243E",
     }
     desired_order = [
-        "Page_1_Executive",
-        "Page_2_Logic_Check",
-        "Page_3_Risk_Map",
-        "Page_4_Engine_Room",
-        "PRINT_REPORT",
         "Dashboard",
         "Inputs",
         "Forecast",
         "Valuation",
         "Sensitivity",
         "Checks",
+        "ReportData",
     ]
     ordered = []
     for name in desired_order:
